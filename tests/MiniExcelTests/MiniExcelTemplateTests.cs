@@ -722,6 +722,34 @@ namespace MiniExcelTests
         }
 
         [Fact]
+        public void TestIEnumerableWithFormulas()
+        {
+            {
+                var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid().ToString()}.xlsx");
+                var templatePath = @"../../../../../samples/xlsx/TestTemplateBasicIEnumerableFillWithFormulas.xlsx";
+
+                //1. By POCO
+                var value = new
+                {
+                    employees = new[]
+                    {
+                        new {name="Jack",department="HR", salary= 90000},
+                        new {name="Lisa",department="HR", salary=150000},
+                        new {name="John",department="HR", salary= 64000},
+                        new {name="Mike",department="IT", salary= 87000},
+                        new {name="Neo", department="IT", salary= 98000},
+                        new {name="Joan",department="IT", salary=120000}
+                    }
+                };
+                MiniExcel.SaveAsByTemplate(path, templatePath, value);
+
+                var dimension = Helpers.GetFirstSheetDimensionRefValue(path);
+                Assert.Equal("A1:C13", dimension);
+
+            }
+        }
+
+        [Fact]
         public void TemplateTest()
         {
             {
@@ -840,35 +868,35 @@ namespace MiniExcelTests
             }
 
         }
-        
+
         [Fact]
         public void MergeSameCellsWithTagTest()
         {
             var mergedFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid().ToString()}.xlsx");
-            
+
             var path = @"../../../../../samples/xlsx/TestMergeWithTag.xlsx";
-            
+
             MiniExcel.MergeSameCells(mergedFilePath, path);
             {
                 var mergedCells = Helpers.GetFirstSheetMergedCells(mergedFilePath);
-                
+
                 Assert.Equal("A2:A4", mergedCells[0]);
                 Assert.Equal("C3:C4", mergedCells[1]);
                 Assert.Equal("A7:A8", mergedCells[2]);
             }
         }
-        
+
         [Fact]
         public void MergeSameCellsWithLimitTagTest()
         {
             var mergedFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid().ToString()}.xlsx");
-            
+
             var path = @"../../../../../samples/xlsx/TestMergeWithLimitTag.xlsx";
-            
+
             MiniExcel.MergeSameCells(mergedFilePath, path);
             {
                 var mergedCells = Helpers.GetFirstSheetMergedCells(mergedFilePath);
-                
+
                 Assert.Equal("A3:A4", mergedCells[0]);
                 Assert.Equal("C3:C6", mergedCells[1]);
                 Assert.Equal("A5:A6", mergedCells[2]);

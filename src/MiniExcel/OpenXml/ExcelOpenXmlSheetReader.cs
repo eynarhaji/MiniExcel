@@ -7,7 +7,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -24,7 +23,7 @@ namespace MiniExcelLibs.OpenXml
         private MergeCells _mergeCells;
         private ExcelOpenXmlStyles _style;
         private readonly ExcelOpenXmlZip _archive;
-        private OpenXmlConfiguration _config;
+        private readonly OpenXmlConfiguration _config;
 
         private static readonly XmlReaderSettings _xmlSettings = new XmlReaderSettings
         {
@@ -50,28 +49,37 @@ namespace MiniExcelLibs.OpenXml
             // if sheets count > 1 need to read xl/_rels/workbook.xml.rels
             var sheets = _archive.entries.Where(w => w.FullName.StartsWith("xl/worksheets/sheet", StringComparison.OrdinalIgnoreCase)
                 || w.FullName.StartsWith("/xl/worksheets/sheet", StringComparison.OrdinalIgnoreCase)
-            );
+            ).ToArray();
             ZipArchiveEntry sheetEntry = null;
             if (sheetName != null)
             {
                 SetWorkbookRels(_archive.entries);
-                var s = _sheetRecords.SingleOrDefault(_ => _.Name == sheetName);
-                if (s == null)
+                var sheetRecord = _sheetRecords.SingleOrDefault(_ => _.Name == sheetName);
+                if (sheetRecord == null && _config.DynamicSheets != null)
+                {
+                    var sheetConfig = _config.DynamicSheets.FirstOrDefault(ds => ds.Key == sheetName);
+                    if (sheetConfig != null)
+                    {
+                        sheetRecord = _sheetRecords.SingleOrDefault(_ => _.Name == sheetConfig.Name);
+                    }
+                }
+                if (sheetRecord == null)
                     throw new InvalidOperationException("Please check sheetName/Index is correct");
-                sheetEntry = sheets.Single(w => w.FullName == $"xl/{s.Path}" || w.FullName == $"/xl/{s.Path}" || w.FullName == s.Path || s.Path == $"/{w.FullName}");
+
+                sheetEntry = sheets.Single(w => w.FullName == $"xl/{sheetRecord.Path}" || w.FullName == $"/xl/{sheetRecord.Path}" || w.FullName == sheetRecord.Path || sheetRecord.Path == $"/{w.FullName}");
             }
             else if (sheets.Count() > 1)
             {
                 SetWorkbookRels(_archive.entries);
                 var s = _sheetRecords[0];
-#if NET45
-                sheetEntry = sheets.Single(w => w.FullName == $"xl/{s.Path}" || w.FullName == $"/xl/{s.Path}");
-#elif NETSTANDARD2_0_OR_GREATER
+//#if NET45
+//                sheetEntry = sheets.Single(w => w.FullName == $"xl/{s.Path}" || w.FullName == $"/xl/{s.Path}");
+//#else
 
-                // fixed by argo@live.ca 
+                // fixed by argo@live.ca
                 // s.Path = "/xl/sheets/sheet1.xml" s.FullName = "/xl/sheets/sheet1.xml"
                 sheetEntry = sheets.Single(w => w.FullName == $"xl/{s.Path}" || w.FullName == $"/xl/{s.Path}" || w.FullName.TrimStart('/') == s.Path.TrimStart('/'));
-#endif
+//#endif
             }
             else
                 sheetEntry = sheets.Single();
@@ -279,11 +287,12 @@ namespace MiniExcelLibs.OpenXml
                                 }
 
                                 // fill empty rows
-                                if (!(nextRowIndex < startRowIndex))
+                                var expectedRowIndex = isFirstRow ? startRowIndex : nextRowIndex;
+                                if (!(expectedRowIndex < startRowIndex))
                                 {
-                                    if (nextRowIndex < rowIndex)
+                                    if (expectedRowIndex < rowIndex)
                                     {
-                                        for (int i = nextRowIndex; i < rowIndex; i++)
+                                        for (int i = expectedRowIndex; i < rowIndex; i++)
                                         {
                                             yield return GetCell(useHeaderRow, maxColumnIndex, headRows, startColumnIndex);
                                         }
@@ -401,6 +410,14 @@ namespace MiniExcelLibs.OpenXml
 
         public IEnumerable<T> Query<T>(string sheetName, string startCell) where T : class, new()
         {
+            if (sheetName == null)
+            {
+                var sheetInfo = CustomPropertyHelper.GetExcellSheetInfo(typeof(T), this._config);
+                if (sheetInfo != null)
+                {
+                    sheetName = sheetInfo.ExcelSheetName;
+                }
+            }
             return ExcelOpenXmlSheetReader.QueryImpl<T>(Query(false, sheetName, startCell), startCell, this._config);
         }
 
@@ -449,7 +466,9 @@ namespace MiniExcelLibs.OpenXml
                             if (headersDic.ContainsKey(alias))
                             {
                                 object newV = null;
-                                object itemValue = item[keys[headersDic[alias]]];
+                                var columnId = headersDic[alias];
+                                var columnName = keys[columnId];
+                                item.TryGetValue(columnName, out var itemValue);
 
                                 if (itemValue == null)
                                     continue;
@@ -464,9 +483,15 @@ namespace MiniExcelLibs.OpenXml
                         object newV = null;
                         object itemValue = null;
                         if (pInfo.ExcelIndexName != null && keys.Contains(pInfo.ExcelIndexName))
-                            itemValue = item[pInfo.ExcelIndexName];
+                        {
+                            item.TryGetValue(pInfo.ExcelIndexName, out itemValue);
+                        }
                         else if (headersDic.ContainsKey(pInfo.ExcelColumnName))
-                            itemValue = item[keys[headersDic[pInfo.ExcelColumnName]]];
+                        {
+                            var columnId = headersDic[pInfo.ExcelColumnName];
+                            var columnName = keys[columnId];
+                            item.TryGetValue(columnName, out itemValue);
+                        }
 
                         if (itemValue == null)
                             continue;
@@ -534,6 +559,7 @@ namespace MiniExcelLibs.OpenXml
                             {
                                 yield return new SheetRecord(
                                     reader.GetAttribute("name"),
+                                    reader.GetAttribute("state"),
                                     uint.Parse(reader.GetAttribute("sheetId")),
                                     XmlReaderHelper.GetAttribute(reader, "id", _relationshiopNs)
                                 );

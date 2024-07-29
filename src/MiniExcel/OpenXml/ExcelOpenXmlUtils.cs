@@ -3,12 +3,14 @@
     using MiniExcelLibs.Utils;
     using System;
 #if DEBUG
-    public 
+    public
 #else
-    internal 
+    internal
 #endif
     static class ExcelOpenXmlUtils
     {
+        public static string MinifyXml( string xml ) => xml.Replace( "\r", "" ).Replace( "\n", "" ).Replace( "\t", "" ).Trim();
+
         /// <summary>
         /// Encode to XML (special characteres: &apos; &quot; &gt; &lt; &amp;)
         /// </summary>

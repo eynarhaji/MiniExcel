@@ -1,8 +1,6 @@
 ﻿namespace MiniExcelLibs
 {
     using OpenXml;
-    using Utils;
-    using Zip;
     using System;
     using System.Collections;
     using System.Collections.Generic;
@@ -10,6 +8,8 @@
     using System.Dynamic;
     using System.IO;
     using System.Linq;
+    using Utils;
+    using Zip;
 
     public static partial class MiniExcel
     {
@@ -91,6 +91,21 @@
 
         #region range
 
+        /// <summary>
+        /// Extract the given range。 Only uppercase letters are effective。
+        /// e.g.
+        ///     MiniExcel.QueryRange(path, startCell: "A2", endCell: "C3")
+        ///     A2 represents the second row of column A, C3 represents the third row of column C
+        ///     If you don't want to restrict rows, just don't include numbers
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="useHeaderRow"></param>
+        /// <param name="sheetName"></param>
+        /// <param name="excelType"></param>
+        /// <param name="startCell">top left corner</param>
+        /// <param name="endCell">lower right corner</param>
+        /// <param name="configuration"></param>
+        /// <returns></returns>
         public static IEnumerable<dynamic> QueryRange(string path, bool useHeaderRow = false, string sheetName = null, ExcelType excelType = ExcelType.UNKNOWN, string startCell = "a1", string endCell = "", IConfiguration configuration = null)
         {
             using (var stream = FileHelper.OpenSharedRead(path))
@@ -147,7 +162,7 @@
         {
             ExcelTemplateFactory.GetProvider(stream, configuration, excelType).MergeSameCells(filePath);
         }
-        
+
         #endregion
 
         /// <summary>
@@ -215,6 +230,20 @@
 
             var archive = new ExcelOpenXmlZip(stream);
             return new ExcelOpenXmlSheetReader(stream, config).GetWorkbookRels(archive.entries).Select(s => s.Name).ToList();
+        }
+
+        public static List<SheetInfo> GetSheetInformations(string path, OpenXmlConfiguration config = null)
+        {
+            using (var stream = FileHelper.OpenSharedRead(path))
+                return GetSheetInformations(stream, config);
+        }
+
+        public static List<SheetInfo> GetSheetInformations(this Stream stream, OpenXmlConfiguration config = null)
+        {
+            config = config ?? OpenXmlConfiguration.DefaultConfig;
+
+            var archive = new ExcelOpenXmlZip(stream);
+            return new ExcelOpenXmlSheetReader(stream, config).GetWorkbookRels(archive.entries).Select((s, i) => s.ToSheetInfo((uint)i)).ToList();
         }
 
         public static ICollection<string> GetColumns(string path, bool useHeaderRow = false, string sheetName = null, ExcelType excelType = ExcelType.UNKNOWN, string startCell = "A1", IConfiguration configuration = null)

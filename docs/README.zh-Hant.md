@@ -24,7 +24,41 @@
 
 ---
 
+### 1.34.0
+- [New] 支持 freeze panes (#626) (via @meld-cp)
+- [New] 支持 DateTime Nullale support (via @jiaguangli)
+- [OPT] Reduce memory requirements when processing templates + template formulas (#638) (via @meld-cp)
+- [Bug] 修正 problem with multi-line when using Query (#628) (via @meld-cp)
+- [Bug] 修正 empty data reader issue. (#629) (via @duszekmestre)
+- [Bug] 修正 Fields of type long cannot be set to text normally #627 (via @shps951023)
 
+### 1.33.0
+- [New] 支持 Template 公式 (#622) (via @meld-cp)
+- [New] 更新 DynamicConfiguration format (#595) (via @wangboshun)
+- [OPT] CSV enumeration and code reusage (#600) (via @duszekmestre)
+- [OPT] 1900 year DateTime correction #599 (via @duszekmestre)
+
+### 1.32.1
+- [New] .NET5^ support image `ReadOnlySpan<byte>` (via @shps951023)
+- [Bug] Remove bug with Portable.System.DateTimeOnly and only support DateOnly .NET6^ #594 (via @shps951023)
+
+### 1.32.0
+- [New] Using DynamicConfiguration when writing data using DataTable (via @pszybiak)
+- [New] Make System.DateOnly available as date in Excel (#576) (via @ofthelit)
+- [New] Allow ampersand in sheet names (via @ofthelit)
+- [OPT] Use true async processing for excel writer (#573) (via @duszekmestre)
+- [Bug] Fix nullable enumeration conversion failure #567) (via @PurplestViper)
+- [Bug] IEnumerable traversed twice #422 (via @Discolai)
+- [Bug] Fix Read empty string as null (via @pszybiak)
+- [Bug] Fix CSV Reader Query faild on specific xlsx file, throws ExcelColumnNotFoundException (via @AZhrZho)
+- [Bug] Fix DynamicExcelColumn configuration while saving IDictionary values (via @johannes-barta)
+- [Bug] Fix propInfo.Key missing (via @shps951023)
+- [Bug] Fix sharedStrings ref #549 (via @shps951023)
+
+### 1.31.3
+- [Bug] DescriptionAttr null check(via @wulaoh)
+- [Bug] Throw custom exception when CSV column not found #543 (via @pszybiak)
+- [Bug] SaveAsByTemplate rowInfo.IEnumerableMercell.Height null exception #553 (via @shps951023)
 
 ### 1.31.2
 

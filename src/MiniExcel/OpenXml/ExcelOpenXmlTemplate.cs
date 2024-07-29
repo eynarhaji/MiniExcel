@@ -4,14 +4,12 @@ namespace MiniExcelLibs.OpenXml
     using MiniExcelLibs.Utils;
     using MiniExcelLibs.Zip;
     using System;
-    using System.Collections;
     using System.Collections.Generic;
     using System.Data;
     using System.IO;
     using System.IO.Compression;
     using System.Linq;
     using System.Reflection;
-    using System.Runtime.InteropServices.ComTypes;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
@@ -27,7 +25,8 @@ namespace MiniExcelLibs.OpenXml
             _isExpressionRegex = new Regex("(?<={{).*?(?=}})");
             _ns = new XmlNamespaceManager(new NameTable());
             _ns.AddNamespace("x", Config.SpreadsheetmlXmlns);
-        }
+            _ns.AddNamespace( "x14ac", Config.SpreadsheetmlXml_x14ac );
+		}
 
         private readonly Stream _stream;
         private readonly OpenXmlConfiguration _configuration;
@@ -52,7 +51,7 @@ namespace MiniExcelLibs.OpenXml
 
         public void SaveAsByTemplateImpl(Stream templateStream, object value)
         {
-            //only support xlsx         
+            //only support xlsx
             Dictionary<string, object> values = null;
             if (value is Dictionary<string, object>)
             {
@@ -119,26 +118,23 @@ namespace MiniExcelLibs.OpenXml
                         // disposing writer disposes streams as well. reopen the entry to read and parse calc functions
                         using (var filledStream = entry.Open())
                         {
-                            sheetIdx++; 
-                            var filledDoc = new XmlDocument();
-                            filledDoc.Load(filledStream);
-                            var filledSheetData = filledDoc.SelectSingleNode("/x:worksheet/x:sheetData", _ns);
-                            _calcChainContent.Append(CalcChainHelper.GetCalcChainContentFromSheet(filledSheetData, _ns, sheetIdx));
+                            sheetIdx++;
+                            _calcChainContent.Append( CalcChainHelper.GetCalcChainContent( CalcChainCellRefs, sheetIdx ) );
                         }
                     }
 
-                    var calcChain = _archive.zipFile.Entries.FirstOrDefault( e => e.FullName.Contains("xl/calcChain.xml"));
+                    var calcChain = _archive.zipFile.Entries.FirstOrDefault(e => e.FullName.Contains("xl/calcChain.xml"));
                     if (calcChain != null)
                     {
                         string calcChainPathname = calcChain.FullName;
                         calcChain.Delete();
-                        var calcChainEntry =  _archive.zipFile.CreateEntry(calcChainPathname);
+                        var calcChainEntry = _archive.zipFile.CreateEntry(calcChainPathname);
                         using (var calcChainStream = calcChainEntry.Open())
                         {
                             CalcChainHelper.GenerateCalcChainSheet(calcChainStream, _calcChainContent.ToString());
                         }
                     }
-                    
+
                 }
 
                 _archive.zipFile.Dispose();

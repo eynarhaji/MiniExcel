@@ -34,7 +34,7 @@ namespace MiniExcelLibs.OpenXml
 
         public class PropInfo
         {
-            public PropertyInfo PropertyInfo { get; set; } 
+            public PropertyInfo PropertyInfo { get; set; }
             public FieldInfo FieldInfo { get; set; }
             public Type UnderlyingTypePropType { get; set; }
             public PropertyInfoOrFieldInfo PropertyInfoOrFieldInfo { get; set; } = PropertyInfoOrFieldInfo.None;
@@ -107,6 +107,8 @@ namespace MiniExcelLibs.OpenXml
 
         private List<XRowInfo> XRowInfos { get; set; }
 
+        private readonly List<string> CalcChainCellRefs = new List<string>();
+
         private Dictionary<string, XMergeCell> XMergeCellInfos { get; set; }
         public List<XMergeCell> NewXMergeCellInfos { get; private set; }
 
@@ -128,11 +130,11 @@ namespace MiniExcelLibs.OpenXml
             ReplaceSharedStringsToStr(sharedStrings, ref rows);
             GetMercells(doc, worksheet);
             UpdateDimensionAndGetRowsInfo(inputMaps, ref doc, ref rows, !mergeCells);
-             
+
             WriteSheetXml(stream, doc, sheetData, mergeCells);
 
         }
-         
+
         private void GetMercells(XmlDocument doc, XmlNode worksheet)
         {
             var mergeCells = doc.SelectSingleNode($"/x:worksheet/x:mergeCells", _ns);
@@ -199,11 +201,11 @@ namespace MiniExcelLibs.OpenXml
                                 ColIndex = StringHelper.GetLetter(att),
                                 RowIndex = StringHelper.GetNumber(att)
                             };
-                        }).OrderBy(x=>x.RowIndex).ToList();
+                        }).OrderBy(x => x.RowIndex).ToList();
 
                     var mergeColumns = columns.Where(s => s.InnerText.Contains("@merge")).ToList();
                     var endMergeColumns = columns.Where(s => s.InnerText.Contains("@endmerge")).ToList();
-                    var mergeLimitColumn = mergeColumns.FirstOrDefault(x=>x.InnerText.Contains("@mergelimit"));
+                    var mergeLimitColumn = mergeColumns.FirstOrDefault(x => x.InnerText.Contains("@mergelimit"));
 
                     foreach (var mergeColumn in mergeColumns)
                     {
@@ -226,7 +228,7 @@ namespace MiniExcelLibs.OpenXml
                                 x.ColIndex == taggedColumn.Key.ColIndex && x.RowIndex > taggedColumn.Key.RowIndex &&
                                 x.RowIndex < taggedColumn.Value.RowIndex));
                         }
-                        
+
                         Dictionary<int, MergeCellIndex>
                             lastMergeCellIndexes = new Dictionary<int, MergeCellIndex>();
 
@@ -242,7 +244,7 @@ namespace MiniExcelLibs.OpenXml
                                 var childNodeLetter = StringHelper.GetLetter(att);
                                 var childNodeNumber = StringHelper.GetNumber(att);
 
-                                if(!string.IsNullOrEmpty(childNode.InnerText))
+                                if (!string.IsNullOrEmpty(childNode.InnerText))
                                 {
                                     var xmlNodes = calculatedColumns
                                         .Where(j => j.InnerText == childNode.InnerText && j.ColIndex == childNodeLetter)
@@ -260,7 +262,7 @@ namespace MiniExcelLibs.OpenXml
 
                                             xmlNodes = xmlNodes.Where(j => j.RowIndex >= limitedNode.RowIndex && j.RowIndex <= limitedMaxNode.RowIndex).ToList();
                                         }
-                                        
+
                                         var firstRow = xmlNodes.FirstOrDefault();
                                         var lastRow = xmlNodes.LastOrDefault(s =>
                                             s.RowIndex <= firstRow?.RowIndex + xmlNodes.Count &&
@@ -303,6 +305,10 @@ namespace MiniExcelLibs.OpenXml
                 int originRowIndex;
                 int rowIndexDiff = 0;
                 var rowXml = new StringBuilder();
+
+                // for formula cells
+                int enumrowstart = -1;
+                int enumrowend = -1;
 
                 // for grouped cells
                 bool groupingStarted = false;
@@ -356,7 +362,7 @@ namespace MiniExcelLibs.OpenXml
                     {
                         isHeaderRow = true;
                     }
-                    else if(row.InnerText.Contains("@merge") && mergeCells)
+                    else if (row.InnerText.Contains("@merge") && mergeCells)
                     {
                         mergeRowCount++;
                         continue;
@@ -410,6 +416,7 @@ namespace MiniExcelLibs.OpenXml
                     {
                         var first = true;
                         var iEnumerableIndex = 0;
+                        enumrowstart = newRowIndex;
 
                         foreach (var item in rowInfo.CellIEnumerableValues)
                         {
@@ -475,7 +482,8 @@ namespace MiniExcelLibs.OpenXml
                                         rowXml.Replace(key, "");
                                         continue;
                                     }
-
+                                    if (!dic.ContainsKey(propInfo.Key))
+                                        continue;
                                     var cellValue = dic[propInfo.Key];
                                     if (cellValue == null)
                                     {
@@ -615,7 +623,7 @@ namespace MiniExcelLibs.OpenXml
                                     rowXml.Replace(extract, newCellValue);
                                 }
 
-                                foreach (var propInfo in rowInfo.PropsMap )
+                                foreach (var propInfo in rowInfo.PropsMap)
                                 {
                                     var prop = propInfo.Value.PropertyInfo;
 
@@ -682,7 +690,10 @@ namespace MiniExcelLibs.OpenXml
 
                             var mergeBaseRowIndex = newRowIndex;
                             newRowIndex += rowInfo.IEnumerableMercell?.Height ?? 1;
-                            writer.Write(CleanXml(rowXml, endPrefix)); // pass StringBuilder for netcoreapp3.0 or above
+
+                            // replace formulas
+                            ProcessFormulas( rowXml, newRowIndex );
+                            writer.Write(CleanXml( rowXml, endPrefix)); // pass StringBuilder for netcoreapp3.0 or above
 
                             //mergecells
                             if (rowInfo.RowMercells != null)
@@ -702,40 +713,53 @@ namespace MiniExcelLibs.OpenXml
                                 if (rowInfo.IEnumerableMercell != null)
                                     continue;
 
-                                // https://github.com/shps951023/MiniExcel/issues/207#issuecomment-824518897
-                                for (int i = 1; i < rowInfo.IEnumerableMercell.Height; i++)
+                                // https://github.com/mini-software/MiniExcel/assets/12729184/1a699497-57e8-4602-b01e-9ffcfef1478d
+                                if (rowInfo?.IEnumerableMercell?.Height != null)
                                 {
-                                    mergeBaseRowIndex++;
-                                    var _newRow = row.Clone() as XmlElement;
-                                    _newRow.SetAttribute("r", mergeBaseRowIndex.ToString());
-
-                                    var cs = _newRow.SelectNodes($"x:c", _ns);
-                                    // all v replace by empty
-                                    // TODO: remove c/v
-                                    foreach (XmlElement _c in cs)
+                                    // https://github.com/shps951023/MiniExcel/issues/207#issuecomment-824518897
+                                    for (int i = 1; i < rowInfo.IEnumerableMercell.Height; i++)
                                     {
-                                        _c.RemoveAttribute("t");
-                                        foreach (XmlNode ch in _c.ChildNodes)
-                                        {
-                                            _c.RemoveChild(ch);
-                                        }
-                                    }
+                                        mergeBaseRowIndex++;
+                                        var _newRow = row.Clone() as XmlElement;
+                                        _newRow.SetAttribute("r", mergeBaseRowIndex.ToString());
 
-                                    _newRow.InnerXml = new StringBuilder(_newRow.InnerXml).Replace($"{{{{$rowindex}}}}", mergeBaseRowIndex.ToString()).ToString();
-                                    writer.Write(CleanXml(_newRow.OuterXml, endPrefix));
+                                        var cs = _newRow.SelectNodes($"x:c", _ns);
+                                        // all v replace by empty
+                                        // TODO: remove c/v
+                                        foreach (XmlElement _c in cs)
+                                        {
+                                            _c.RemoveAttribute("t");
+                                            foreach (XmlNode ch in _c.ChildNodes)
+                                            {
+                                                _c.RemoveChild(ch);
+                                            }
+                                        }
+
+                                        _newRow.InnerXml = new StringBuilder(_newRow.InnerXml).Replace($"{{{{$rowindex}}}}", mergeBaseRowIndex.ToString()).ToString();
+                                        writer.Write(CleanXml(_newRow.OuterXml, endPrefix));
+                                    }
                                 }
+
                             }
                         }
+
+                        enumrowend = newRowIndex-1;
                     }
                     else
                     {
+
                         rowXml.Clear()
                               .Append(outerXmlOpen)
                               .AppendFormat(@" r=""{0}"">", newRowIndex)
                               .Append(innerXml)
                               .Replace($"{{{{$rowindex}}}}", newRowIndex.ToString())
+                              .Replace($"{{{{$enumrowstart}}}}", enumrowstart.ToString())
+                              .Replace($"{{{{$enumrowend}}}}", enumrowend.ToString())
                               .AppendFormat("</{0}>", row.Name);
-                        writer.Write(CleanXml(rowXml, endPrefix)); // pass StringBuilder for netcoreapp3.0 or above
+
+                        ProcessFormulas( rowXml, newRowIndex );
+
+                        writer.Write(CleanXml( rowXml, endPrefix)); // pass StringBuilder for netcoreapp3.0 or above
 
                         //mergecells
                         if (rowInfo.RowMercells != null)
@@ -769,6 +793,59 @@ namespace MiniExcelLibs.OpenXml
 
                 writer.Write(contents[1]);
             }
+        }
+        
+        private void ProcessFormulas( StringBuilder rowXml, int rowIndex )
+        {
+
+            var rowXmlString = rowXml.ToString();
+
+            // exit early if possible
+            if ( !rowXmlString.Contains( "$=" ) ) {
+                return;
+            }
+
+            XmlReaderSettings settings = new XmlReaderSettings { NameTable = _ns.NameTable };
+            XmlParserContext context = new XmlParserContext( null, _ns, "", XmlSpace.Default );
+            XmlReader reader = XmlReader.Create( new StringReader( rowXmlString ), settings, context );
+            
+            XmlDocument d = new XmlDocument();
+            d.Load( reader );
+
+            var row = d.FirstChild as XmlElement;
+
+            // convert cells starting with '$=' into formulas
+            var cs = row.SelectNodes( $"x:c", _ns );
+            for ( var ci = 0; ci < cs.Count; ci++ )
+            {
+                var c = cs.Item( ci ) as XmlElement;
+                if ( c == null ) {
+                    continue;
+                }
+                /* Target:
+                 <c r="C8" s="3">
+                    <f>SUM(C2:C7)</f>
+                </c>
+                 */
+                var vs = c.SelectNodes( $"x:v", _ns );
+                foreach ( XmlElement v in vs )
+                {
+                    if ( !v.InnerText.StartsWith( "$=" ) )
+                    {
+                        continue;
+                    }
+                    var fNode = c.OwnerDocument.CreateElement( "f", Config.SpreadsheetmlXmlns );
+                    fNode.InnerText = v.InnerText.Substring( 2 );
+                    c.InsertBefore( fNode, v );
+                    c.RemoveChild( v );
+
+                    var celRef = ExcelOpenXmlUtils.ConvertXyToCell( ci + 1, rowIndex );
+                    CalcChainCellRefs.Add( celRef );
+
+                }
+            }
+            rowXml.Clear();
+            rowXml.Append( row.OuterXml );
         }
 
         private static string ConvertToDateTimeString(KeyValuePair<string, PropInfo> propInfo, object cellValue)
@@ -828,7 +905,7 @@ namespace MiniExcelLibs.OpenXml
                             // change type = str and replace its value
                             c.SetAttribute("t", "str");
                         }
-                        //TODO: remove sharedstring? 
+                        //TODO: remove sharedstring?
                     }
                 }
             }
@@ -894,7 +971,7 @@ namespace MiniExcelLibs.OpenXml
                             }
                             else
                             {
-                                throw new System.Collections.Generic.KeyNotFoundException($"Please check {propNames[0]} parameter, it's not exist.");
+                                throw new KeyNotFoundException($"Please check {propNames[0]} parameter, it's not exist.");
                             }
                         }
 
@@ -937,16 +1014,19 @@ namespace MiniExcelLibs.OpenXml
                                             }
                                             else
                                             {
-                                            
+
                                                 var values = new Dictionary<string, PropInfo>();
 
                                                 var props = xRowInfo.IEnumerableGenricType.GetProperties();
 
                                                 foreach (var p in props)
                                                 {
-                                                    values.Add(p.Name, new PropInfo { PropertyInfo = p,
-                                                                                      PropertyInfoOrFieldInfo = PropertyInfoOrFieldInfo.PropertyInfo,
-                                                                                      UnderlyingTypePropType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType });
+                                                    values.Add(p.Name, new PropInfo
+                                                    {
+                                                        PropertyInfo = p,
+                                                        PropertyInfoOrFieldInfo = PropertyInfoOrFieldInfo.PropertyInfo,
+                                                        UnderlyingTypePropType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType
+                                                    });
                                                 }
 
                                                 var fields = xRowInfo.IEnumerableGenricType.GetFields();
@@ -955,9 +1035,12 @@ namespace MiniExcelLibs.OpenXml
                                                     if (!values.ContainsKey(f.Name))
                                                     {
 
-                                                        values.Add(f.Name, new PropInfo { FieldInfo = f,
-                                                                                          PropertyInfoOrFieldInfo = PropertyInfoOrFieldInfo.FieldInfo,
-                                                                                          UnderlyingTypePropType = Nullable.GetUnderlyingType(f.FieldType) ?? f.FieldType });
+                                                        values.Add(f.Name, new PropInfo
+                                                        {
+                                                            FieldInfo = f,
+                                                            PropertyInfoOrFieldInfo = PropertyInfoOrFieldInfo.FieldInfo,
+                                                            UnderlyingTypePropType = Nullable.GetUnderlyingType(f.FieldType) ?? f.FieldType
+                                                        });
                                                     }
                                                 }
 
@@ -980,12 +1063,15 @@ namespace MiniExcelLibs.OpenXml
                                 v.InnerText = v.InnerText.Replace($"{{{{{propNames[0]}}}}}", propNames[1]);
                                 break;
                             }
+                            if (!xRowInfo.PropsMap.ContainsKey(propNames[1]))
+                            {
+                                v.InnerText = v.InnerText.Replace($"{{{{{propNames[0]}.{propNames[1]}}}}}", "");
+                                continue;
+                                throw new InvalidDataException($"{propNames[0]} doesn't have {propNames[1]} property");
+                            }
                             // auto check type https://github.com/shps951023/MiniExcel/issues/177
                             var prop = xRowInfo.PropsMap[propNames[1]];
-                            var type = prop.UnderlyingTypePropType; //avoid nullable 
-                                                                    // 
-                            if (!xRowInfo.PropsMap.ContainsKey(propNames[1]))
-                                throw new InvalidDataException($"{propNames[0]} doesn't have {propNames[1]} property");
+                            var type = prop.UnderlyingTypePropType; //avoid nullable
 
                             if (isMultiMatch)
                             {
@@ -1032,7 +1118,7 @@ namespace MiniExcelLibs.OpenXml
                             }
 
                             var column = dt.Columns[propNames[1]];
-                            var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType; //avoid nullable 
+                            var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType; //avoid nullable
                             if (!xRowInfo.PropsMap.ContainsKey(propNames[1]))
                                 throw new InvalidDataException($"{propNames[0]} doesn't have {propNames[1]} property");
 

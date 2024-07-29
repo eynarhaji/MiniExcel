@@ -1,10 +1,4 @@
-﻿
-using MiniExcelLibs.Utils;
-
-using System.Collections.Generic;
-using System;
-using System.ComponentModel;
-using MiniExcelLibs.Attributes;
+﻿using MiniExcelLibs.Attributes;
 
 namespace MiniExcelLibs.OpenXml
 {
@@ -14,10 +8,13 @@ namespace MiniExcelLibs.OpenXml
         public bool FillMergedCells { get; set; }
         public TableStyles TableStyles { get; set; } = TableStyles.Default;
         public bool AutoFilter { get; set; } = true;
+        public int FreezeRowCount { get; set; } = 1;
+        public int FreezeColumnCount { get; set; } = 0;
         public bool EnableConvertByteArray { get; set; } = true;
         public bool IgnoreTemplateParameterMissing { get; set; } = true;
         public bool EnableWriteNullValueCell { get; set; } = true;
         public bool EnableSharedStringCache { get; set; } = true;
         public long SharedStringCacheSize { get; set; } = 5 * 1024 * 1024;
+        public DynamicExcelSheet[] DynamicSheets { get; set; }
     }
 }

@@ -2,7 +2,6 @@ using MiniExcelLibs.OpenXml;
 using MiniExcelLibs.Utils;
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -11,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace MiniExcelLibs.Csv
 {
-    internal class CsvReader : IExcelReader 
+    internal class CsvReader : IExcelReader
     {
         private Stream _stream;
         private CsvConfiguration _config;
@@ -24,17 +23,41 @@ namespace MiniExcelLibs.Csv
         {
             if (startCell != "A1")
                 throw new NotImplementedException("CSV not Implement startCell");
-            if(_stream.CanSeek)
+            if (_stream.CanSeek)
                 _stream.Position = 0;
             var reader = _config.StreamReaderFunc(_stream);
             {
-                var row = string.Empty;
                 string[] read;
                 var firstRow = true;
                 Dictionary<int, string> headRows = new Dictionary<int, string>();
-                while ((row = reader.ReadLine()) != null)
+                string row;
+                for (var rowIndex = 1; (row = reader.ReadLine()) != null; rowIndex++)
                 {
-                    read = Split(row);
+
+                    string finalRow = row;
+                    if (_config.ReadLineBreaksWithinQuotes)
+                    {
+                        while (finalRow.Count(c => c == '"') % 2 != 0)
+                        {
+                            var nextPart = reader.ReadLine();
+                            if (nextPart == null)
+                            {
+                                break;
+                            }
+                            finalRow = string.Concat(finalRow, _config.NewLine, nextPart);
+                        }
+                    }
+                    read = Split(finalRow);
+
+                    // invalid row check
+                    if (read.Length < headRows.Count)
+                    {
+                        var colIndex = read.Length;
+                        var headers = headRows.ToDictionary(x => x.Value, x => x.Key);
+                        var rowValues = read.Select((x, i) => new { Key = headRows[i], Value = x }).ToDictionary(x => x.Key, x => (object)x.Value);
+                        throw new Exceptions.ExcelColumnNotFoundException(null,
+                            headRows[colIndex], null, rowIndex, headers, rowValues, $"Csv read error, Column: {colIndex} not found in Row: {rowIndex}");
+                    }
 
                     //header
                     if (useHeaderRow)
@@ -58,9 +81,26 @@ namespace MiniExcelLibs.Csv
 
                     //body
                     {
+                        // record first row as reference
+                        if (firstRow)
+                        {
+                            firstRow = false;
+                            for (int i = 0; i <= read.Length - 1; i++)
+                                headRows.Add(i, $"c{i + 1}");
+                        }
+
                         var cell = CustomPropertyHelper.GetEmptyExpandoObject(read.Length - 1, 0);
-                        for (int i = 0; i <= read.Length - 1; i++)
-                            cell[ColumnHelper.GetAlphabetColumnName(i)] = read[i];
+                        if (_config.ReadEmptyStringAsNull)
+                        {
+                            for (int i = 0; i <= read.Length - 1; i++)
+                                cell[ColumnHelper.GetAlphabetColumnName(i)] = read[i]?.Length == 0 ? null : read[i];
+                        }
+                        else
+                        {
+                            for (int i = 0; i <= read.Length - 1; i++)
+                                cell[ColumnHelper.GetAlphabetColumnName(i)] = read[i];
+                        }
+
                         yield return cell;
                     }
                 }
@@ -85,14 +125,14 @@ namespace MiniExcelLibs.Csv
             }
         }
 
-        public Task<IEnumerable<IDictionary<string, object>>> QueryAsync(bool UseHeaderRow, string sheetName, string startCell,CancellationToken cancellationToken = default(CancellationToken))
+        public Task<IEnumerable<IDictionary<string, object>>> QueryAsync(bool UseHeaderRow, string sheetName, string startCell, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return Task.Run(() => Query(UseHeaderRow, sheetName, startCell),cancellationToken);
+            return Task.Run(() => Query(UseHeaderRow, sheetName, startCell), cancellationToken);
         }
 
-        public Task<IEnumerable<T>> QueryAsync<T>(string sheetName, string startCell,CancellationToken cancellationToken = default(CancellationToken)) where T : class, new()
+        public Task<IEnumerable<T>> QueryAsync<T>(string sheetName, string startCell, CancellationToken cancellationToken = default(CancellationToken)) where T : class, new()
         {
-            return Task.Run(() => Query<T>(sheetName, startCell),cancellationToken);
+            return Task.Run(() => Query<T>(sheetName, startCell), cancellationToken);
         }
 
         public void Dispose()

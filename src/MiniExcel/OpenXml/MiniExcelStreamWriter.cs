@@ -8,9 +8,9 @@ namespace MiniExcelLibs.OpenXml
     {
         private readonly Stream _stream;
         private readonly Encoding _encoding;
-        internal readonly StreamWriter _streamWriter;
+        private readonly StreamWriter _streamWriter;
         private bool disposedValue;
-        public MiniExcelStreamWriter(Stream stream,Encoding encoding, int bufferSize)
+        public MiniExcelStreamWriter(Stream stream, Encoding encoding, int bufferSize)
         {
             this._stream = stream;
             this._encoding = encoding;
@@ -30,6 +30,12 @@ namespace MiniExcelLibs.OpenXml
             return this._streamWriter.BaseStream.Position;
         }
 
+        public long Flush()
+        {
+            this._streamWriter.Flush();
+            return this._streamWriter.BaseStream.Position;
+        }
+
         public void SetPosition(long position)
         {
             this._streamWriter.BaseStream.Position = position;
@@ -39,7 +45,7 @@ namespace MiniExcelLibs.OpenXml
         {
             if (!disposedValue)
             {
-               this._streamWriter?.Dispose();
+                this._streamWriter?.Dispose();
                 disposedValue = true;
             }
         }

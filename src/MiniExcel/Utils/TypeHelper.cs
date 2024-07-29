@@ -1,6 +1,5 @@
 ﻿namespace MiniExcelLibs.Utils
 {
-    using MiniExcelLibs.Attributes;
     using MiniExcelLibs.Exceptions;
     using System;
     using System.Collections.Generic;
@@ -76,7 +75,11 @@
 
         private static object TypeMappingImpl<T>(T v, ExcelColumnInfo pInfo, ref object newValue, object itemValue, Configuration _config) where T : class, new()
         {
-            if (pInfo.ExcludeNullableType == typeof(Guid))
+            if (pInfo.Nullable && string.IsNullOrWhiteSpace(itemValue?.ToString()))
+            {
+                newValue = null;
+            }
+            else if (pInfo.ExcludeNullableType == typeof(Guid))
             {
                 newValue = Guid.Parse(itemValue.ToString());
             }
@@ -140,13 +143,13 @@
             {
                 newValue = XmlEncoder.DecodeString(itemValue?.ToString());
             }
-            else if (pInfo.Property.Info.PropertyType.IsEnum)
+            else if (pInfo.ExcludeNullableType.IsEnum)
             {
-                var fieldInfo = pInfo.Property.Info.PropertyType.GetFields().FirstOrDefault(e => e.GetCustomAttribute<DescriptionAttribute>(false)?.Description == itemValue?.ToString());
+                var fieldInfo = pInfo.ExcludeNullableType.GetFields().FirstOrDefault(e => e.GetCustomAttribute<DescriptionAttribute>(false)?.Description == itemValue?.ToString());
                 if (fieldInfo != null)
-                    newValue = Enum.Parse(pInfo.Property.Info.PropertyType, fieldInfo.Name, true);
+                    newValue = Enum.Parse(pInfo.ExcludeNullableType, fieldInfo.Name, true);
                 else
-                    newValue = Enum.Parse(pInfo.Property.Info.PropertyType, itemValue?.ToString(), true);
+                    newValue = Enum.Parse(pInfo.ExcludeNullableType, itemValue?.ToString(), true);
             }
             else
             {
